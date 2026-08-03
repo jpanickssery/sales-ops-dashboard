@@ -1,0 +1,55 @@
+Start it:
+cd app\backend
+python -m uvicorn main:app --host 127.0.0.1 --port 8000
+Then open http://127.0.0.1:8000/ in your browser. Leave that PowerShell window open — the server runs in the foreground and prints logs there.
+
+Stop it: click into that PowerShell window and press Ctrl+C.
+
+If you closed the window and don't have that terminal anymore (or aren't sure if it's still running), find and stop it by port instead:
+Get-NetTCPConnection -LocalPort 8000 -State Listen | Select-Object OwningProcess
+Stop-Process -Id <the PID from above> -Force
+
+One thing worth knowing: whatever spreadsheet is currently loaded stays saved on disk (app/backend/data/), so stopping and restarting the server doesn't lose your data — it'll come back up showing whatever was last uploaded.
+
+
+What's running: A FastAPI backend (app/backend/) that parses the raw workbook tabs, recomputes every dashboard number in code (validated to match the workbook's own figures exactly — KPIs, segments, regional splits, hygiene counts all check out), and stores each upload as a versioned snapshot with accumulating trend history. A vanilla JS/HTML frontend (app/frontend/) reproduces the design mockup's look and wires all 12 dashboard views plus upload and Ask a Question to real endpoints.
+
+Verified in a real browser (Playwright + Chromium, screenshots reviewed): Executive Summary, Coverage vs Quota, Trends, Target Deals (with region-chip filtering), Deal Health & Risk, Seller Leaderboard, Deal Explorer (with live search) all render correctly with real numbers, and upload → reprocess → display works end to end with zero console errors.
+
+One thing I couldn't verify: this sandbox has no Anthropic API credentials, so I confirmed the Ask feature's plumbing works (question submits, error surfaces cleanly in the chat UI) but not an actual live Claude response. Set ANTHROPIC_API_KEY (or run ant auth login) before starting the server and that'll light up.
+
+To run it yourself: see app/README.md — pip install -r requirements.txt, then python -m uvicorn main:app --port 8000 from app/backend/, then open the browser and upload the workbook via the sidebar.
+
+
+how do i set the anthropic key
+
+Two ways, depending on whether you want it just for this session or permanently:
+
+Temporary (current PowerShell window only) — set it right before running the server:
+$env:ANTHROPIC_API_KEY = "sk-ant-your-key-here"
+python -m uvicorn main:app --host 127.0.0.1 --port 8000
+This only lasts until you close that PowerShell window — you'd have to re-set it every time.
+
+Permanent (persists across reboots/new terminals) — run once:
+setx ANTHROPIC_API_KEY "sk-ant-your-key-here"
+Then close and reopen PowerShell (setx doesn't affect the current window) before starting the server.
+
+If you don't have a key yet, get one from the Anthropic Console at platform.claude.com under API Keys (you'll need billing set up on the account/org that owns it).
+
+Once it's set, verify it's picked up:
+echo $env:ANTHROPIC_API_KEY
+
+
+
+
+
+> how is the "packaged solutions" tab on the spreadsheet filtered
+
+  Ran 9 shell commands
+
+The tab is driven by two dropdown filters (cells B4/B5: Region and Size) that feed into COUNTIFS/SUMIFS formulas pulling from a hidden helper sheet called _PkgData, not directly from the Open Deals data. Specifically:
+
+- _PkgData is a pre-built staging table (Region, Size, TCV, FY27 Revenue, Weighted FY27, Q1 Revenue) — one row per deal — that's already scoped to deals where Solution_Accelerator = "Agent X" (per the sheet's own subtitle: "Open pipeline deals where accelerators = Agent X"). Size here is the same Standard/Large split used everywhere else (TCV < $10M / ≥ $10M).
+- Cells D4/D5 turn the dropdown picks into wildcard match criteria ("All Regions" → *, otherwise the exact region string), and the summary row's formulas (COUNTIFS, SUMIFS) apply those against _PkgData — so picking "UK" + "Standard" just narrows which _PkgData rows get counted/summed.
+
+One thing worth flagging: _PkgData currently has only 97 rows, but the live Open Deals (Data) tab actually has 243 deals tagged Solution_Accelerator = "Agent X" (239 of them Standard-segment). The region mix is similar in both (~78% blank/NA, ~13-19% UK, small APAC), which points to _PkgData being a stale cached extract from an earlier version of the data rather than something recomputed live off the current Open Deals tab — it looks like it hasn't been refreshed since Agent X tagging grew from ~97 to 243 deals. So the "Packaged Solutions" tab's numbers are likely understating current Agent X pipeline by more than half. Worth checking with whoever maintains that tab/macro if you need it kept in sync — happy to add an "Agent X" cut to the app's own filters (we already added Solution Accelerator as a filter on Target Deals and Deal Explorer) if you'd rather rely on the live data instead.
