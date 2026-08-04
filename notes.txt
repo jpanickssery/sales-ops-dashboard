@@ -1,0 +1,4 @@
+
+
+C:\Kits\ClaudeProjects\05-Sales-Ops\app\backend>python -m uvicorn main:app --host localhost --port 8000
+
