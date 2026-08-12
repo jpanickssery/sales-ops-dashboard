@@ -220,6 +220,23 @@ def normalize_snapshot(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def empty_workbook_sheets() -> dict[str, pd.DataFrame]:
+    """Placeholder tabs for pipeline.process_hubspot() when no workbook file
+    is present (e.g. a code-only clone with no 01-Docs/ -- see
+    app/README.md's "Known limitations"). Each frame carries the real raw
+    header names so normalize_open_deals/normalize_line_items/
+    normalize_sellers/normalize_hygiene rename them into the usual output
+    columns with zero rows, rather than crashing on a missing column --
+    aggregate.py then needs no special-casing for the no-workbook path.
+    """
+    return {
+        "Open Deals (Data)": pd.DataFrame(columns=list(_OPEN_DEALS_RENAME.keys())),
+        "Line Items (Data)": pd.DataFrame(columns=list(_LINE_ITEMS_RENAME.keys())),
+        "Seller Performance": pd.DataFrame(columns=list(_SELLER_RENAME.keys())),
+        "Sales Hygiene": pd.DataFrame(columns=list(_HYGIENE_RENAME.keys())),
+    }
+
+
 # ---------------------------------------------------------------------------
 # HubSpot raw-pull normalization (app/hubspot-data/, see its README.md).
 #

@@ -79,8 +79,14 @@ def process_hubspot(workbook_path: str | None = None) -> dict:
     closed_deals = normalize.normalize_closed_deals_hubspot(pull["closed_deals"])
     customers = normalize.normalize_companies_hubspot(pull["companies"])
 
+    # Sellers/quota, Line Items, Sales Hygiene, and the Del Org/OBU backfill
+    # only exist in the workbook -- optional. A code-only clone (see
+    # app/README.md's "Known limitations") won't have 01-Docs/ at all, so
+    # fall back to empty placeholders instead of crashing the whole HubSpot
+    # ingest over a missing file that upload-a-workbook-later can fill in.
     wb_path = workbook_path or str(DEFAULT_WORKBOOK_PATH)
-    sheets = load_workbook_sheets(wb_path)
+    workbook_available = Path(wb_path).exists()
+    sheets = load_workbook_sheets(wb_path) if workbook_available else normalize.empty_workbook_sheets()
 
     spreadsheet_open_deals = normalize.normalize_open_deals(sheets["Open Deals (Data)"])
     open_deals, extras_match_stats = normalize.merge_spreadsheet_extras(open_deals, spreadsheet_open_deals)
@@ -99,7 +105,11 @@ def process_hubspot(workbook_path: str | None = None) -> dict:
         refreshed_label=refreshed_label,
         customers=customers,
     )
-    summary["meta"]["source"] = "HubSpot (live pull) + spreadsheet (Sellers, Line Items, Hygiene)"
+    summary["meta"]["source"] = (
+        "HubSpot (live pull) + spreadsheet (Sellers, Line Items, Hygiene)" if workbook_available
+        else "HubSpot (live pull) only -- no workbook found, upload one for Sellers/Line Items/Hygiene"
+    )
+    summary["meta"]["workbookAvailable"] = workbook_available
     summary["meta"]["hubspotPulledAt"] = pull["meta"].get("pulled_at_utc")
     summary["meta"]["hubspotSnapshotId"] = pull["snapshot_id"]
     summary["meta"]["extrasMatch"] = extras_match_stats
