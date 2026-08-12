@@ -17,7 +17,7 @@ const state = {
   // Overview/Pipeline/Performance start collapsed so the nav fits without
   // scrolling; Data starts open since it's short. Navigating to a page
   // force-expands the group that contains it (see wireInteractions).
-  navCollapsed: { Overview: true, Pipeline: true, Performance: true, Data: false },
+  navCollapsed: { Overview: true, Pipeline: true, Performance: true, Customers: true, Data: false },
   // Each filter is an array of selected values; an empty array means no
   // restriction ("All"). Multi-select: several values OR together within one
   // filter, filters AND together across dimensions.
@@ -49,6 +49,26 @@ const state = {
   riskSort: "issues",
   lbRegion: "All",
   lbSort: "fy27rev",
+  // Same 9 filter dimensions as targetFilters/explorerFilters (see dealFilterRow).
+  closedFilters: {
+    region: [], quarter: [], forecast: [], dealType: [],
+    owner: [], portfolio: [], serviceLine: [], partner: [], solutionAccelerator: [],
+  },
+  closedSortCol: "closeDate",
+  closedSortDir: "desc",
+  closedOutcome: "All", // "All" | "Won" | "Lost" -- narrows the table only, not the KPI cards
+  closedDealDetail: null,
+  // Master Customer page: 8 filter dimensions (status is Current/Previous/
+  // Current & Previous, the rest mirror the columns on the table) plus a
+  // free-text company search.
+  customerFilters: {
+    status: [], country: [], industry: [], businessUnit: [],
+    icpTier: [], accountSalesTier: [], owner: [], serviceLine: [],
+  },
+  customerSearch: "",
+  customerSortCol: "totalRevenue",
+  customerSortDir: "desc",
+  customerDetail: null,
 };
 
 // HGS fiscal year ends Mar 31 -- FY27 Q1 starts Apr 1, 2026. A close date's
@@ -91,6 +111,8 @@ const NUMERIC_SORT_COLS = new Set([
   "tcv", "acv", "fy27rev", "q2rev", "q3rev", "q4rev",
   "annualQuota", "ytdAttainment", "committedAttainment", "deals", "ecnb", "ncnb",
   "totalAcv", "totalTcv", "h1Rev", "h2Rev", "weighted", "fy27DealsWon", "fy26DealsWon",
+  "totalRevenue", "revenueFY27", "revenueFY28", "annualRevenue",
+  "numOpenDeals", "numWonDeals", "numLostDeals", "numDeals", "numContacts",
 ]);
 
 function sortRows(rows, col, dir) {
@@ -126,7 +148,11 @@ const NAV_GROUPS = [
     { key: "leaderboard", icon: "♠", label: "Seller Leaderboard" },
     { key: "sellerPerf", icon: "▦", label: "Seller Performance" },
     { key: "winloss", icon: "⚖", label: "Win / Loss" },
+    { key: "closedDeals", icon: "✓", label: "Closed Deals" },
     { key: "accounts", icon: "⌘", label: "Account 360" },
+  ]},
+  { title: "Customers", items: [
+    { key: "customers", icon: "◫", label: "Master Customer" },
   ]},
   { title: "Data", items: [
     { key: "explorer", icon: "≡", label: "Deal Explorer" },
@@ -219,6 +245,24 @@ async function fetchDeal(id) {
   return res.json();
 }
 
+async function fetchClosedDeal(id) {
+  const res = await fetch(`/api/closed-deal/${id}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || "Could not load this deal.");
+  }
+  return res.json();
+}
+
+async function fetchCustomer(id) {
+  const res = await fetch(`/api/customer/${id}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || "Could not load this customer.");
+  }
+  return res.json();
+}
+
 async function fetchSeller(id) {
   const res = await fetch(`/api/seller/${id}`);
   if (!res.ok) {
@@ -283,6 +327,8 @@ function renderPage() {
   if (state.page === "upload") return renderUpload();
   if (state.page === "ask") return renderAsk();
   if (state.page === "deal") return renderDealDetail();
+  if (state.page === "closedDeal") return renderClosedDealDetail();
+  if (state.page === "customerDetail") return renderCustomerDetail();
   if (state.page === "sellerDetail") return renderSellerDetail();
 
   if (!state.data) {
@@ -301,6 +347,8 @@ function renderPage() {
     case "leaderboard": return renderLeaderboard();
     case "sellerPerf": return renderSellerPerformance();
     case "winloss": return renderWinloss();
+    case "closedDeals": return renderClosedDeals();
+    case "customers": return renderCustomers();
     case "accounts": return renderAccounts();
     case "explorer": return renderExplorer();
     default: return "";
@@ -558,6 +606,7 @@ function dealTableHeader(group, sc, sd) {
     ${sortableHeader(group, "owner", "Owner", sc, sd)}
     ${sortableHeader(group, "closeDate", "Close Date", sc, sd)}
     ${sortableHeader(group, "stage", "Stage", sc, sd)}
+    ${sortableHeader(group, "dealType", "Deal Type", sc, sd)}
     ${sortableHeader(group, "forecastCat", "Forecast", sc, sd)}
     ${sortableHeader(group, "tcv", "TCV", sc, sd, true)}
     ${sortableHeader(group, "acv", "ACV", sc, sd, true)}
@@ -574,6 +623,50 @@ function dealTableRow(r) {
     <td style="color:#5C6D72">${esc(r.owner)}</td>
     <td style="color:#5C6D72;white-space:nowrap">${fmtDate(r.closeDate)}</td>
     <td style="color:#5C6D72">${esc(r.stage)}</td>
+    <td style="color:#5C6D72">${esc(r.dealType)}</td>
+    <td>${forecastBadge(r.forecastCat)}</td>
+    <td class="num" style="font-weight:500">${fmtNumAbbrev(r.tcv)}</td>
+    <td class="num">${fmtNumAbbrev(r.acv)}</td>
+    <td class="num">${fmtNumAbbrev(r.fy27rev)}</td>
+    <td class="num">${fmtNumAbbrev(r.q2rev)}</td>
+    <td class="num">${fmtNumAbbrev(r.q3rev)}</td>
+    <td class="num">${fmtNumAbbrev(r.q4rev)}</td>
+  </tr>`;
+}
+
+function outcomeBadge(outcome) {
+  const won = outcome === "Won";
+  return `<span class="badge" style="background:${won ? "#DCEEE0" : "#FBEAE5"};color:${won ? "#2E7D4F" : "#A8402B"}">${esc(outcome || "—")}</span>`;
+}
+
+// Closed Deals table -- same filter dimensions/row shape as Target Deals
+// (see dealFilterRow/dealMatchesAllFilters, reused as-is) plus an Outcome
+// column and no ACV-less/quarterly gaps since the HubSpot pull carries them
+// for closed deals too (see normalize.normalize_closed_deals_hubspot).
+function closedDealTableHeader(group, sc, sd) {
+  return `<tr>
+    ${sortableHeader(group, "company", "Company / Deal", sc, sd)}
+    ${sortableHeader(group, "owner", "Owner", sc, sd)}
+    ${sortableHeader(group, "closeDate", "Close Date", sc, sd)}
+    ${sortableHeader(group, "stage", "Stage", sc, sd)}
+    ${sortableHeader(group, "outcome", "Outcome", sc, sd)}
+    ${sortableHeader(group, "forecastCat", "Forecast", sc, sd)}
+    ${sortableHeader(group, "tcv", "TCV", sc, sd, true)}
+    ${sortableHeader(group, "acv", "ACV", sc, sd, true)}
+    ${sortableHeader(group, "fy27rev", "FY27 Rev", sc, sd, true)}
+    ${sortableHeader(group, "q2rev", "Q2 Rev", sc, sd, true)}
+    ${sortableHeader(group, "q3rev", "Q3 Rev", sc, sd, true)}
+    ${sortableHeader(group, "q4rev", "Q4 Rev", sc, sd, true)}
+  </tr>`;
+}
+
+function closedDealTableRow(r) {
+  return `<tr class="row-link" data-closed-deal-id="${r.id}">
+    <td><div style="font-weight:500">${esc(r.company)}</div><div style="font-size:11.5px;color:#8393A0">${esc(r.deal)}</div></td>
+    <td style="color:#5C6D72">${esc(r.owner)}</td>
+    <td style="color:#5C6D72;white-space:nowrap">${fmtDate(r.closeDate)}</td>
+    <td style="color:#5C6D72">${esc(r.stage)}</td>
+    <td>${outcomeBadge(r.outcome)}</td>
     <td>${forecastBadge(r.forecastCat)}</td>
     <td class="num" style="font-weight:500">${fmtNumAbbrev(r.tcv)}</td>
     <td class="num">${fmtNumAbbrev(r.acv)}</td>
@@ -959,6 +1052,244 @@ function renderWinloss() {
     </div>`;
 }
 
+// ---- Closed Deals (Won vs. Lost, full 9-dimension filter row) ----
+
+function renderClosedDeals() {
+  const d = state.data;
+  const allRows = d.closedDealExplorer.map((r) => ({ ...r, quarter: fiscalQuarterLabel(r.closeDate) }));
+
+  // KPI cards always reflect the 9-dimension filters only -- the Won/Lost/All
+  // chip below narrows just the table, so switching it doesn't make the win
+  // rate card disappear (it's the point of the page).
+  const f = state.closedFilters;
+  const dimFiltered = allRows.filter((r) => dealMatchesAllFilters(f, r));
+  const won = dimFiltered.filter((r) => r.won);
+  const lost = dimFiltered.filter((r) => !r.won);
+  const total = won.length + lost.length;
+  const winRate = total ? won.length / total : 0;
+  const wonTCV = won.reduce((s, r) => s + (r.tcv || 0), 0);
+  const lostTCV = lost.reduce((s, r) => s + (r.tcv || 0), 0);
+
+  let shownRows = state.closedOutcome === "All" ? dimFiltered : dimFiltered.filter((r) => r.outcome === state.closedOutcome);
+  shownRows = sortRows(shownRows, state.closedSortCol, state.closedSortDir);
+  const shown = shownRows.slice(0, 60);
+  const sc = state.closedSortCol, sd = state.closedSortDir;
+
+  return `
+    ${pageHeader("Performance", "Closed Deals", `Closed FY27 &bull; ${fmtNum(total)} deals matching filters &bull; click a column header to sort, or a row for full detail`)}
+    <div class="grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+      <div class="card" style="padding:16px 14px"><div style="font-size:10.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#8393A0;margin-bottom:8px">Won</div><div style="font-weight:600;font-size:21px;color:#3D9B99">${fmtNum(won.length)}</div></div>
+      <div class="card" style="padding:16px 14px"><div style="font-size:10.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#8393A0;margin-bottom:8px">Lost</div><div style="font-weight:600;font-size:21px;color:#C4593E">${fmtNum(lost.length)}</div></div>
+      <div class="card" style="padding:16px 14px"><div style="font-size:10.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#8393A0;margin-bottom:8px">Win Rate</div><div style="font-weight:600;font-size:21px">${fmtPct(winRate, 1)}</div></div>
+      <div class="card" style="padding:16px 14px"><div style="font-size:10.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#8393A0;margin-bottom:8px">Won TCV / Lost TCV</div><div style="font-weight:600;font-size:17px"><span style="color:#3D9B99">${fmtM(wonTCV)}</span> <span style="color:#8393A0;font-weight:400">/</span> <span style="color:#C4593E">${fmtM(lostTCV)}</span></div></div>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:14px">
+      ${["All", "Won", "Lost"].map((o) => `<div class="chip ${state.closedOutcome === o ? "active" : ""}" data-set="closedOutcome" data-value="${o}">${o}</div>`).join("")}
+    </div>
+    ${dealFilterRow("closed", f, allRows)}
+    <div class="card" style="overflow:hidden">
+      <div style="overflow-x:auto">
+      <table class="data-table">
+        <thead>${closedDealTableHeader("closed", sc, sd)}</thead>
+        <tbody>${shown.map(closedDealTableRow).join("")}</tbody>
+      </table>
+      </div>
+      ${shown.length === 0 ? `<div style="padding:40px 20px;text-align:center;color:#8393A0;font-size:13px">No deals match these filters.</div>` : ""}
+    </div>`;
+}
+
+// ---- Master Customer (current/previous customer companies pulled from HubSpot) ----
+
+function customerStatusBadge(status) {
+  const map = {
+    "Current": { bg: "#DCEEE0", color: "#2E7D4F" },
+    "Previous": { bg: "#F1F3F8", color: "#5C6D72" },
+    "Current & Previous": { bg: "#E4EEF7", color: "#26476B" },
+  };
+  const c = map[status] || { bg: "#F1F3F8", color: "#5C6D72" };
+  return `<span class="badge" style="background:${c.bg};color:${c.color}">${esc(status || "—")}</span>`;
+}
+
+// Service Lines is an array per customer (a company can span several), so it
+// needs its own match rule rather than the scalar matchesFilter: no
+// selection = unfiltered; otherwise at least one of the company's service
+// lines (or BLANK_LABEL, if it has none) must be in the selected set.
+function customerMatchesServiceLine(selected, serviceLines) {
+  if (!selected.length) return true;
+  if (!serviceLines || !serviceLines.length) return selected.includes(BLANK_LABEL);
+  return serviceLines.some((sl) => selected.includes(sl));
+}
+
+function customerMatchesAllFilters(filters, r) {
+  return matchesFilter(filters.status, r.status)
+    && matchesFilter(filters.country, r.country)
+    && matchesFilter(filters.industry, r.industry)
+    && matchesFilter(filters.businessUnit, r.businessUnit)
+    && matchesFilter(filters.icpTier, r.icpTier)
+    && matchesFilter(filters.accountSalesTier, r.accountSalesTier)
+    && matchesFilter(filters.owner, r.owner)
+    && customerMatchesServiceLine(filters.serviceLine, r.serviceLines);
+}
+
+function customerFilterRow(filters, rows) {
+  const opts = (field) => uniqueOptionsWithBlank(rows.map((r) => r[field]));
+  const serviceLineOpts = uniqueOptionsWithBlank(
+    rows.flatMap((r) => (r.serviceLines && r.serviceLines.length ? r.serviceLines : [null]))
+  );
+  return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+    ${filterFlyout("customer", "status", "Status", filters.status, opts("status"))}
+    ${filterFlyout("customer", "country", "Country", filters.country, opts("country"))}
+    ${filterFlyout("customer", "industry", "Industry", filters.industry, opts("industry"))}
+    ${filterFlyout("customer", "businessUnit", "Business Unit", filters.businessUnit, opts("businessUnit"))}
+    ${filterFlyout("customer", "icpTier", "ICP Tier", filters.icpTier, opts("icpTier"))}
+    ${filterFlyout("customer", "accountSalesTier", "Account Tier", filters.accountSalesTier, opts("accountSalesTier"))}
+    ${filterFlyout("customer", "owner", "Owner", filters.owner, opts("owner"))}
+    ${filterFlyout("customer", "serviceLine", "Service Line", filters.serviceLine, serviceLineOpts)}
+  </div>`;
+}
+
+function customerTableHeader(sc, sd) {
+  return `<tr>
+    ${sortableHeader("customer", "company", "Company", sc, sd)}
+    ${sortableHeader("customer", "owner", "Owner", sc, sd)}
+    ${sortableHeader("customer", "status", "Status", sc, sd)}
+    ${sortableHeader("customer", "country", "Country", sc, sd)}
+    ${sortableHeader("customer", "industry", "Industry", sc, sd)}
+    ${sortableHeader("customer", "businessUnit", "Business Unit", sc, sd)}
+    ${sortableHeader("customer", "icpTier", "ICP Tier", sc, sd)}
+    ${sortableHeader("customer", "accountSalesTier", "Acct Tier", sc, sd)}
+    ${sortableHeader("customer", "totalRevenue", "Total Rev", sc, sd, true)}
+    ${sortableHeader("customer", "revenueFY27", "FY27 Rev", sc, sd, true)}
+    ${sortableHeader("customer", "revenueFY28", "FY28 Rev", sc, sd, true)}
+    ${sortableHeader("customer", "numOpenDeals", "Open", sc, sd, true)}
+    ${sortableHeader("customer", "numWonDeals", "Won", sc, sd, true)}
+    ${sortableHeader("customer", "numLostDeals", "Lost", sc, sd, true)}
+    ${sortableHeader("customer", "numContacts", "Contacts", sc, sd, true)}
+    <th>Service Lines</th>
+  </tr>`;
+}
+
+function customerTableRow(r) {
+  const sl = r.serviceLines && r.serviceLines.length ? r.serviceLines.join(", ") : "—";
+  return `<tr class="row-link" data-customer-id="${r.id}">
+    <td style="font-weight:500">${esc(r.company)}</td>
+    <td style="color:#5C6D72">${esc(r.owner)}</td>
+    <td>${customerStatusBadge(r.status)}</td>
+    <td style="color:#5C6D72">${esc(r.country)}</td>
+    <td style="color:#5C6D72">${esc(r.industry)}</td>
+    <td style="color:#5C6D72">${esc(r.businessUnit)}</td>
+    <td style="color:#5C6D72">${esc(r.icpTier)}</td>
+    <td style="color:#5C6D72">${esc(r.accountSalesTier)}</td>
+    <td class="num" style="font-weight:500">${fmtNumAbbrev(r.totalRevenue)}</td>
+    <td class="num">${fmtNumAbbrev(r.revenueFY27)}</td>
+    <td class="num">${fmtNumAbbrev(r.revenueFY28)}</td>
+    <td class="num">${fmtNum(r.numOpenDeals)}</td>
+    <td class="num">${fmtNum(r.numWonDeals)}</td>
+    <td class="num">${fmtNum(r.numLostDeals)}</td>
+    <td class="num">${r.numContacts === null || r.numContacts === undefined ? "—" : fmtNum(r.numContacts)}</td>
+    <td style="font-size:11.5px;color:#8393A0;max-width:220px">${esc(sl)}</td>
+  </tr>`;
+}
+
+function renderCustomers() {
+  const d = state.data;
+  const rows = d.customers;
+  const search = state.customerSearch.toLowerCase();
+  const f = state.customerFilters;
+  let filtered = rows.filter((r) =>
+    (!search || r.company.toLowerCase().includes(search)) && customerMatchesAllFilters(f, r)
+  );
+
+  // KPI cards reflect the filtered set so they narrow along with the table.
+  const totalRev = filtered.reduce((s, r) => s + (r.totalRevenue || 0), 0);
+  const fy27Rev = filtered.reduce((s, r) => s + (r.revenueFY27 || 0), 0);
+  const current = filtered.filter((r) => r.isCurrent).length;
+  const previous = filtered.filter((r) => r.isPrevious).length;
+
+  filtered = sortRows(filtered, state.customerSortCol, state.customerSortDir);
+  const shown = filtered.slice(0, 60);
+  const sc = state.customerSortCol, sd = state.customerSortDir;
+
+  return `
+    ${pageHeader("Customers", "Master Customer", `${fmtNum(rows.length)} customers (current or previous, pulled from HubSpot) &bull; ${fmtNum(filtered.length)} matching filters &bull; click a column header to sort, or a row for full detail`)}
+    <div class="grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+      <div class="card" style="padding:16px 14px"><div style="font-size:10.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#8393A0;margin-bottom:8px">Current</div><div style="font-weight:600;font-size:21px;color:#3D9B99">${fmtNum(current)}</div></div>
+      <div class="card" style="padding:16px 14px"><div style="font-size:10.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#8393A0;margin-bottom:8px">Previous</div><div style="font-weight:600;font-size:21px;color:#8393A0">${fmtNum(previous)}</div></div>
+      <div class="card" style="padding:16px 14px"><div style="font-size:10.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#8393A0;margin-bottom:8px">Total Revenue</div><div style="font-weight:600;font-size:21px;color:#26476B">${fmtM(totalRev)}</div></div>
+      <div class="card" style="padding:16px 14px"><div style="font-size:10.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#8393A0;margin-bottom:8px">FY27 Revenue</div><div style="font-weight:600;font-size:21px;color:#3D9B99">${fmtM(fy27Rev)}</div></div>
+    </div>
+    <input class="text-input" type="text" id="customer-search" placeholder="Search company&hellip;" value="${esc(state.customerSearch)}" style="width:100%;max-width:360px;margin-bottom:14px">
+    ${customerFilterRow(f, rows)}
+    <div class="card" style="overflow:hidden">
+      <div style="overflow-x:auto">
+      <table class="data-table">
+        <thead>${customerTableHeader(sc, sd)}</thead>
+        <tbody>${shown.map(customerTableRow).join("")}</tbody>
+      </table>
+      </div>
+      ${shown.length === 0 ? `<div style="padding:40px 20px;text-align:center;color:#8393A0;font-size:13px">No customers match these filters.</div>` : ""}
+    </div>`;
+}
+
+function renderCustomerDetail() {
+  const link = backLink();
+  const detail = state.customerDetail;
+
+  if (!detail) {
+    return `<div style="margin-bottom:18px">${link}</div><div id="app-loading">Loading customer&hellip;</div>`;
+  }
+  if (detail.error) {
+    return `<div style="margin-bottom:18px">${link}</div><div id="app-loading">${esc(detail.error)}</div>`;
+  }
+
+  const o = detail.overview, rev = detail.revenue, da = detail.dealActivity, e = detail.engagement;
+
+  return `
+    <div style="margin-bottom:14px">${link}</div>
+    <div style="margin-bottom:18px;display:flex;align-items:center;gap:10px">
+      <div>
+        <div class="eyebrow">Customer</div>
+        <h1>${esc(detail.company)}</h1>
+      </div>
+      ${customerStatusBadge(o.status)}
+    </div>
+
+    <div class="grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+      <div class="card" style="padding:16px 14px"><div style="font-size:10.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#8393A0;margin-bottom:8px">Total Revenue</div><div style="font-weight:600;font-size:21px">${fmtM(rev.totalRevenue)}</div></div>
+      <div class="card" style="padding:16px 14px"><div style="font-size:10.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#8393A0;margin-bottom:8px">FY27 Revenue</div><div style="font-weight:600;font-size:21px">${fmtM(rev.revenueFY27)}</div></div>
+      <div class="card" style="padding:16px 14px"><div style="font-size:10.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#8393A0;margin-bottom:8px">FY28 Revenue</div><div style="font-weight:600;font-size:21px">${fmtM(rev.revenueFY28)}</div></div>
+      <div class="card" style="padding:16px 14px"><div style="font-size:10.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#8393A0;margin-bottom:8px">Annual Revenue (Est.)</div><div style="font-weight:600;font-size:21px">${rev.annualRevenue == null ? "—" : fmtM(rev.annualRevenue)}</div></div>
+    </div>
+
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:16px">
+      <div class="card" style="padding:22px 24px">
+        <div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#26476B;margin-bottom:8px">Overview &amp; Classification</div>
+        ${overviewField("Owner", o.owner)}
+        ${overviewField("Country", o.country)}
+        ${overviewField("Industry", o.industry)}
+        ${overviewField("Business Unit", o.businessUnit)}
+        ${overviewField("ICP Tier", o.icpTier)}
+        ${overviewField("Account Sales Tier", o.accountSalesTier)}
+      </div>
+      <div class="card" style="padding:22px 24px">
+        <div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#26476B;margin-bottom:8px">Deal Activity</div>
+        ${overviewField("Open Opportunities", da.numOpenDeals)}
+        ${overviewField("Closed Won (all-time)", da.numWonDeals)}
+        ${overviewField("Closed Lost (all-time)", da.numLostDeals)}
+        ${overviewField("Total Deals (all-time)", da.numDeals)}
+        <div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#26476B;margin-top:16px;margin-bottom:8px">Engagement</div>
+        ${overviewField("Associated Contacts", e.numContacts)}
+      </div>
+    </div>
+
+    <div class="card" style="padding:20px 22px">
+      <div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#26476B;margin-bottom:14px">Service Lines</div>
+      ${detail.serviceLines.length
+        ? `<div style="display:flex;flex-wrap:wrap;gap:8px">${detail.serviceLines.map((sl) => `<span class="badge" style="background:#F1F3F8;color:#26476B">${esc(sl)}</span>`).join("")}</div>`
+        : `<div style="color:#8393A0;font-size:13px">No service-line data in this pull's horizon (open + FY27 closed deals) &mdash; see hubspot-data/README.md.</div>`}
+    </div>`;
+}
+
 // ---- Account 360 ----
 
 function renderAccounts() {
@@ -1028,7 +1359,8 @@ const DETAIL_BACK_LABELS = {
   exec: "Executive Summary", target: "Target Deals", large: "Large Deals",
   explorer: "Deal Explorer", risk: "Deal Health & Risk",
   leaderboard: "Seller Leaderboard", sellerPerf: "Seller Performance",
-  sellerDetail: "Seller Detail",
+  sellerDetail: "Seller Detail", closedDeals: "Closed Deals",
+  customers: "Master Customer",
 };
 
 function backLink() {
@@ -1041,6 +1373,57 @@ function overviewField(label, value) {
   return `<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid #F0F2F5;font-size:13px">
     <span style="color:#8393A0">${esc(label)}</span><span style="font-weight:500">${esc(display)}</span>
   </div>`;
+}
+
+// Shared by the open- and closed-deal detail pages -- 4 groups of HubSpot-only
+// attributes (see aggregate._build_extra_groups). Every field is blank ("—")
+// on a workbook-only snapshot (no HubSpot pull processed yet) since the
+// backend sends None for all of them in that case, same as any other gap.
+function extraGroupsHtml(detail) {
+  const e = detail.engagement, wl = detail.winLoss, c = detail.contract, cx = detail.classificationExtra;
+  const stalledLabel = e.isStalled === null || e.isStalled === undefined ? null : (e.isStalled ? "Yes" : "No");
+  const winProbLabel = wl.winProbabilityPct === null || wl.winProbabilityPct === undefined ? null : `${wl.winProbabilityPct}%`;
+  return `
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:16px">
+      <div class="card" style="padding:22px 24px">
+        <div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#26476B;margin-bottom:8px">Engagement &amp; Activity</div>
+        ${overviewField("Next Step", e.nextStep)}
+        ${overviewField("Last Contacted", fmtDate(e.lastContacted))}
+        ${overviewField("Last Activity", fmtDate(e.lastActivityDate))}
+        ${overviewField("Next Activity", fmtDate(e.nextActivityDate))}
+        ${overviewField("# Activities", e.numActivities)}
+        ${overviewField("# Contacts Touched", e.numContactsTouched)}
+        ${overviewField("Stalled?", stalledLabel)}
+        ${overviewField("Deal Score", e.dealScore)}
+      </div>
+      <div class="card" style="padding:22px 24px">
+        <div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#26476B;margin-bottom:8px">Win / Loss Detail</div>
+        ${overviewField("Competitor", wl.competitor)}
+        ${overviewField("Lost To", wl.lostToCompetitor)}
+        ${overviewField("Win Remarks", wl.winRemarks)}
+        ${overviewField("Win Probability", winProbLabel)}
+        ${overviewField("Closed Lost Reason", wl.closedLostReason)}
+      </div>
+    </div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:16px">
+      <div class="card" style="padding:22px 24px">
+        <div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#26476B;margin-bottom:8px">Contract &amp; Approval</div>
+        ${overviewField("Approval Tier", c.approvalTier)}
+        ${overviewField("Contract Duration (mo)", c.contractDurationMonths)}
+        ${overviewField("Contract Start", fmtDate(c.contractStartDate))}
+        ${overviewField("Contract End", fmtDate(c.contractEndDate))}
+        ${overviewField("First Invoice Date", fmtDate(c.firstInvoiceDate))}
+        ${overviewField("Go-Live Date", fmtDate(c.goLiveDate))}
+      </div>
+      <div class="card" style="padding:22px 24px">
+        <div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#26476B;margin-bottom:8px">Deal Classification</div>
+        ${overviewField("Lead Source", cx.leadSource)}
+        ${overviewField("Industry Vertical", cx.industryVertical)}
+        ${overviewField("Solution Vertical", cx.solutionVertical)}
+        ${overviewField("Functional Area", cx.functionalArea)}
+        ${overviewField("Technology", cx.technology)}
+      </div>
+    </div>`;
 }
 
 function renderDealDetail() {
@@ -1108,7 +1491,7 @@ function renderDealDetail() {
       </div>
     </div>
 
-    <div class="card" style="padding:20px 22px">
+    <div class="card" style="padding:20px 22px;margin-bottom:16px">
       <div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#26476B;margin-bottom:16px">Monthly FY27 Revenue</div>
       <div style="display:flex;align-items:flex-end;gap:8px;height:130px">
         ${detail.monthlyRevenue.map((m) => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
@@ -1117,7 +1500,81 @@ function renderDealDetail() {
           <div style="font-size:10.5px;color:#8393A0;margin-top:6px">${m.month}</div>
         </div>`).join("")}
       </div>
-    </div>`;
+    </div>
+    ${extraGroupsHtml(detail)}`;
+}
+
+// Closed-deal counterpart of renderDealDetail -- same layout minus fields
+// that don't apply to a closed deal (ACV, forecast/probability, target-deal
+// flag, quarterly weighted revenue), plus an Outcome badge up top.
+function renderClosedDealDetail() {
+  const link = backLink();
+  const detail = state.closedDealDetail;
+
+  if (!detail) {
+    return `<div style="margin-bottom:18px">${link}</div><div id="app-loading">Loading deal&hellip;</div>`;
+  }
+  if (detail.error) {
+    return `<div style="margin-bottom:18px">${link}</div><div id="app-loading">${esc(detail.error)}</div>`;
+  }
+
+  const o = detail.overview, fin = detail.financials, cls = detail.classification;
+  const maxMonth = Math.max(...detail.monthlyRevenue.map((m) => m.value), 1);
+
+  return `
+    <div style="margin-bottom:14px">${link}</div>
+    <div style="margin-bottom:18px">
+      <div class="eyebrow">Closed Deal ${outcomeBadge(o.outcome)}</div>
+      <h1>${esc(detail.company)}</h1>
+      <p class="page-sub">${esc(detail.deal)}</p>
+    </div>
+
+    <div class="grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:16px">
+      <div class="card" style="padding:16px 14px"><div style="font-size:10.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#8393A0;margin-bottom:8px">TCV</div><div style="font-weight:600;font-size:21px">${fmtM(fin.tcv)}</div></div>
+      <div class="card" style="padding:16px 14px"><div style="font-size:10.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#8393A0;margin-bottom:8px">FY27 Revenue</div><div style="font-weight:600;font-size:21px">${fmtM(fin.fy27Revenue)}</div></div>
+    </div>
+
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:16px">
+      <div class="card" style="padding:22px 24px">
+        <div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#26476B;margin-bottom:8px">Overview</div>
+        ${overviewField("Owner", o.owner)}
+        ${overviewField("Region", o.region)}
+        ${overviewField("OBU", o.obu)}
+        ${overviewField("Deal Type", o.dealType)}
+        ${overviewField("Stage", o.stage)}
+        ${overviewField("Close Date", fmtDate(o.closeDate))}
+      </div>
+      <div class="card" style="padding:22px 24px">
+        <div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#26476B;margin-bottom:14px">Quarterly Revenue</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12.5px;margin-bottom:20px">
+          <div style="font-weight:600;color:#8393A0">Quarter</div>
+          <div class="num" style="font-weight:600;color:#8393A0">Revenue</div>
+          ${detail.quarterly.map((q) => `
+            <div style="grid-column:1/-1;height:1px;background:#EEF1F5"></div>
+            <div style="padding:6px 0;font-weight:500">${esc(q.quarter)}</div>
+            <div class="num" style="padding:6px 0">${fmtM(q.revenue)}</div>
+          `).join("")}
+        </div>
+        <div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#26476B;margin-bottom:8px">Classification</div>
+        ${overviewField("Portfolio", cls.portfolio)}
+        ${overviewField("Service Line", cls.serviceLine)}
+        ${overviewField("Partner", cls.partner)}
+        ${overviewField("Solution Accelerator", cls.solutionAccelerator)}
+        ${overviewField("Source", cls.source)}
+      </div>
+    </div>
+
+    <div class="card" style="padding:20px 22px;margin-bottom:16px">
+      <div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#26476B;margin-bottom:16px">Monthly FY27 Revenue</div>
+      <div style="display:flex;align-items:flex-end;gap:8px;height:130px">
+        ${detail.monthlyRevenue.map((m) => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
+          <div style="font-size:10px;color:#8393A0;margin-bottom:4px">${m.value > 0 ? fmtNumAbbrev(m.value) : ""}</div>
+          <div style="width:100%;background:#356094;border-radius:4px 4px 0 0;height:${Math.max((m.value / maxMonth) * 100, m.value > 0 ? 4 : 0)}%;min-height:2px"></div>
+          <div style="font-size:10.5px;color:#8393A0;margin-top:6px">${m.month}</div>
+        </div>`).join("")}
+      </div>
+    </div>
+    ${extraGroupsHtml(detail)}`;
 }
 
 // ---- Upload ----
@@ -1209,6 +1666,8 @@ function wireInteractions() {
   function filtersForGroup(group) {
     if (group === "explorer") return state.explorerFilters;
     if (group === "seller") return state.sellerFilters;
+    if (group === "closed") return state.closedFilters;
+    if (group === "customer") return state.customerFilters;
     return state.targetFilters;
   }
   const SORT_KEYS_BY_GROUP = {
@@ -1216,6 +1675,8 @@ function wireInteractions() {
     target: ["targetSortCol", "targetSortDir"],
     seller: ["sellerSortCol", "sellerSortDir"],
     sellerDeals: ["sellerDealsSortCol", "sellerDealsSortDir"],
+    closed: ["closedSortCol", "closedSortDir"],
+    customer: ["customerSortCol", "customerSortDir"],
   };
   document.querySelectorAll("[data-filter-key]").forEach((el) => {
     el.addEventListener("click", (e) => {
@@ -1269,6 +1730,36 @@ function wireInteractions() {
       render();
     });
   });
+  document.querySelectorAll("[data-closed-deal-id]").forEach((el) => {
+    el.addEventListener("click", async () => {
+      const id = el.getAttribute("data-closed-deal-id");
+      state.detailBackTo = state.page;
+      state.page = "closedDeal";
+      state.closedDealDetail = null;
+      render();
+      try {
+        state.closedDealDetail = await fetchClosedDeal(id);
+      } catch (err) {
+        state.closedDealDetail = { error: err.message };
+      }
+      render();
+    });
+  });
+  document.querySelectorAll("[data-customer-id]").forEach((el) => {
+    el.addEventListener("click", async () => {
+      const id = el.getAttribute("data-customer-id");
+      state.detailBackTo = state.page;
+      state.page = "customerDetail";
+      state.customerDetail = null;
+      render();
+      try {
+        state.customerDetail = await fetchCustomer(id);
+      } catch (err) {
+        state.customerDetail = { error: err.message };
+      }
+      render();
+    });
+  });
   document.querySelectorAll("[data-seller-id]").forEach((el) => {
     el.addEventListener("click", async () => {
       const id = el.getAttribute("data-seller-id");
@@ -1296,6 +1787,9 @@ function wireInteractions() {
 
   const accountSearch = document.getElementById("account-search");
   if (accountSearch) accountSearch.addEventListener("input", (e) => { state.accountSearch = e.target.value; render(); accountSearch.focus(); accountSearch.selectionStart = accountSearch.selectionEnd = accountSearch.value.length; });
+
+  const customerSearch = document.getElementById("customer-search");
+  if (customerSearch) customerSearch.addEventListener("input", (e) => { state.customerSearch = e.target.value; render(); customerSearch.focus(); customerSearch.selectionStart = customerSearch.selectionEnd = customerSearch.value.length; });
 
   const uploadInput = document.getElementById("upload-input");
   if (uploadInput) uploadInput.addEventListener("change", async (e) => {

@@ -31,6 +31,7 @@ def build_snapshot(
     hygiene: pd.DataFrame,
     snapshot_history: list[dict],
     refreshed_label: str,
+    customers: pd.DataFrame | None = None,
 ) -> dict:
     return {
         "meta": {
@@ -39,6 +40,7 @@ def build_snapshot(
             "openDeals": int(len(open_deals)),
             "closedFY27": int(len(closed_deals)),
             "lineItems": int(len(line_items)),
+            "customers": int(len(customers)) if customers is not None else 0,
         },
         "kpis": _build_kpis(open_deals),
         "segments": _build_segments(open_deals),
@@ -65,6 +67,8 @@ def build_snapshot(
         # Same row shape as targetDeals/largeDeals (see _build_deal_rows) so
         # the frontend can present identical columns/filters on all three.
         "dealExplorer": _build_deal_rows(open_deals),
+        "closedDealExplorer": _build_closed_deal_rows(closed_deals),
+        "customers": build_customers_list(customers) if customers is not None else [],
         "trendSnapshots": snapshot_history,
     }
 
@@ -233,6 +237,42 @@ def _build_deal_rows(df: pd.DataFrame) -> list[dict]:
     return rows
 
 
+def _build_closed_deal_rows(df: pd.DataFrame) -> list[dict]:
+    # Same shape as _build_deal_rows (region/quarter/forecast/dealType/owner/
+    # portfolio/serviceLine/partner/solutionAccelerator filters + sortable
+    # tcv/acv/fy27rev/q2-4rev columns work identically on the Closed Deals
+    # page), plus outcome/won for the Won-vs-Lost filter. forecastCat/acv/
+    # quarterly revenue only exist when this table came from the HubSpot
+    # pull (see normalize.normalize_closed_deals_hubspot) -- on a
+    # workbook-only snapshot these columns are absent and .get() returns None.
+    rows = []
+    for idx, r in df.iterrows():
+        rows.append({
+            "id": int(idx),
+            "company": str(r["company"]),
+            "deal": str(r["deal_name"]),
+            "owner": "" if pd.isna(r["owner"]) else str(r["owner"]),
+            "region": str(r["region"]),
+            "outcome": str(r["outcome"]),
+            "won": bool(r["won"]),
+            "dealType": "" if pd.isna(r["deal_type"]) else str(r["deal_type"]),
+            "serviceLine": "" if pd.isna(r["service_line"]) else str(r["service_line"]),
+            "portfolio": "" if pd.isna(r["portfolio"]) else str(r["portfolio"]),
+            "partner": "" if pd.isna(r.get("partner")) else str(r.get("partner")),
+            "solutionAccelerator": "" if pd.isna(r["solution_accelerator"]) else str(r["solution_accelerator"]),
+            "stage": "" if pd.isna(r["stage"]) else str(r["stage"]),
+            "forecastCat": "" if pd.isna(r.get("forecast_cat")) else str(r.get("forecast_cat")),
+            "tcv": _num(r["tcv"]),
+            "acv": _num(r.get("acv")),
+            "fy27rev": _num(r["fy27_revenue"]),
+            "q2rev": _num(r.get("q2_rev")),
+            "q3rev": _num(r.get("q3_rev")),
+            "q4rev": _num(r.get("q4_rev")),
+            "closeDate": None if pd.isna(r["close_date"]) else r["close_date"].date().isoformat(),
+        })
+    return rows
+
+
 def _build_sellers(sellers: pd.DataFrame, open_deals: pd.DataFrame) -> list[dict]:
     # Total ACV isn't a column the workbook's Seller Performance tab carries
     # -- computed here the same way the tab itself derives Total TCV: summed
@@ -349,6 +389,84 @@ def _build_accounts(open_deals: pd.DataFrame) -> list[dict]:
     return rows
 
 
+def _customer_status(is_current: bool, is_previous: bool) -> str:
+    if is_current and is_previous:
+        return "Current & Previous"
+    if is_current:
+        return "Current"
+    if is_previous:
+        return "Previous"
+    return "Unknown"
+
+
+def build_customers_list(df: pd.DataFrame) -> list[dict]:
+    """One row per "master customer" company (see
+    normalize.normalize_companies_hubspot) for the Master Customer page."""
+    rows = []
+    for idx, r in df.iterrows():
+        rows.append({
+            "id": int(idx),
+            "company": str(r["company"]),
+            "owner": "" if pd.isna(r["owner"]) else str(r["owner"]),
+            "country": str(r["country"]),
+            "industry": str(r["industry"]),
+            "businessUnit": "" if pd.isna(r["business_unit"]) else str(r["business_unit"]),
+            "icpTier": "" if pd.isna(r["icp_tier"]) else str(r["icp_tier"]),
+            "accountSalesTier": "" if pd.isna(r["account_sales_tier"]) else str(r["account_sales_tier"]),
+            "status": _customer_status(bool(r["is_current"]), bool(r["is_previous"])),
+            "isCurrent": bool(r["is_current"]),
+            "isPrevious": bool(r["is_previous"]),
+            "numContacts": None if pd.isna(r["num_contacts"]) else _num(r["num_contacts"]),
+            "numOpenDeals": _int(r["num_open_deals"]),
+            "numWonDeals": _int(r["num_won_deals"]),
+            "numLostDeals": _int(r["num_lost_deals"]),
+            "numDeals": _int(r["num_deals"]),
+            "totalRevenue": _num(r["total_revenue"]),
+            "revenueFY27": _num(r["revenue_fy27"]),
+            "revenueFY28": _num(r["revenue_fy28"]),
+            "annualRevenue": None if pd.isna(r["annual_revenue"]) else _num(r["annual_revenue"]),
+            "serviceLines": list(r["service_lines"]) if isinstance(r["service_lines"], (list, tuple)) else [],
+        })
+    return rows
+
+
+def build_customer_detail(row: pd.Series) -> dict:
+    """Every column for one master-customer company, grouped into sections
+    for the customer detail page -- the click-through target from the
+    Master Customer list.
+    """
+    g = lambda col: _json_val(row.get(col))
+    service_lines = row.get("service_lines")
+    return {
+        "company": g("company"),
+        "overview": {
+            "owner": g("owner"),
+            "country": g("country"),
+            "industry": g("industry"),
+            "businessUnit": g("business_unit"),
+            "icpTier": g("icp_tier"),
+            "accountSalesTier": g("account_sales_tier"),
+            "status": _customer_status(bool(row.get("is_current")), bool(row.get("is_previous"))),
+        },
+        "revenue": {
+            "totalRevenue": g("total_revenue"),
+            "revenueFY27": g("revenue_fy27"),
+            "revenueFY28": g("revenue_fy28"),
+            "annualRevenue": g("annual_revenue"),
+        },
+        "dealActivity": {
+            "numOpenDeals": g("num_open_deals"),
+            "numWonDeals": g("num_won_deals"),
+            "numLostDeals": g("num_lost_deals"),
+            "numDeals": g("num_deals"),
+        },
+        "engagement": {
+            "numContacts": g("num_contacts"),
+        },
+        "serviceLines": list(service_lines) if isinstance(service_lines, (list, tuple)) else [],
+    }
+
+
 def _json_val(v):
     if pd.isna(v):
         return None
@@ -359,6 +477,50 @@ def _json_val(v):
     return v
 
 
+def _build_extra_groups(row: pd.Series) -> dict:
+    """The 4 HubSpot-only attribute groups added to deal detail pages.
+    Fields are all-or-nothing sourced from the app/hubspot-data/ pull -- on a
+    snapshot built from the workbook alone (no HubSpot pull processed yet)
+    these columns won't exist and every field here comes back None, which
+    the frontend renders as blank rather than erroring.
+    """
+    g = lambda col: _json_val(row.get(col))
+    return {
+        "engagement": {
+            "nextStep": g("next_step"),
+            "lastContacted": g("last_contacted"),
+            "lastActivityDate": g("last_activity_date"),
+            "nextActivityDate": g("next_activity_date"),
+            "numActivities": g("num_activities"),
+            "numContactsTouched": g("num_contacts_touched"),
+            "isStalled": bool(row.get("is_stalled")) if row.get("is_stalled") is not None else None,
+            "dealScore": g("deal_score"),
+        },
+        "winLoss": {
+            "competitor": g("competitor"),
+            "lostToCompetitor": g("lost_to_competitor"),
+            "winRemarks": g("win_remarks"),
+            "winProbabilityPct": g("win_probability_pct"),
+            "closedLostReason": g("closed_lost_reason"),
+        },
+        "contract": {
+            "approvalTier": g("approval_tier"),
+            "contractDurationMonths": g("contract_duration_months"),
+            "contractStartDate": g("contract_start_date"),
+            "contractEndDate": g("contract_end_date"),
+            "firstInvoiceDate": g("first_invoice_date"),
+            "goLiveDate": g("go_live_date"),
+        },
+        "classificationExtra": {
+            "leadSource": g("lead_source"),
+            "industryVertical": g("industry_vertical"),
+            "solutionVertical": g("solution_vertical"),
+            "functionalArea": g("functional_area"),
+            "technology": g("technology"),
+        },
+    }
+
+
 def build_deal_detail(row: pd.Series) -> dict:
     """Every column for one Open Deals row, organized into sections for the
     deal detail page — the click-through target from Target/Large Deals,
@@ -366,7 +528,7 @@ def build_deal_detail(row: pd.Series) -> dict:
     """
     g = lambda col: _json_val(row.get(col))
     months = [{"month": short, "value": g(f"m_{short}") or 0} for _, short in MONTH_COLUMNS]
-    return {
+    detail = {
         "company": g("company"),
         "deal": g("deal_name"),
         "overview": {
@@ -403,6 +565,52 @@ def build_deal_detail(row: pd.Series) -> dict:
             "source": g("source"),
         },
     }
+    detail.update(_build_extra_groups(row))
+    return detail
+
+
+def build_closed_deal_detail(row: pd.Series) -> dict:
+    """Every column for one Closed Deals row -- the click-through target
+    from the Closed Deals performance page. Mirrors build_deal_detail's
+    layout minus the fields that don't apply to closed deals (ACV, forecast
+    category/probability, target-deal flag, quarterly weighted revenue).
+    """
+    g = lambda col: _json_val(row.get(col))
+    months = [{"month": short, "value": g(f"m_{short}") or 0} for _, short in MONTH_COLUMNS]
+    detail = {
+        "company": g("company"),
+        "deal": g("deal_name"),
+        "overview": {
+            "owner": g("owner"),
+            "region": g("region"),
+            "obu": g("obu"),
+            "dealType": g("deal_type"),
+            "stage": g("stage"),
+            "outcome": g("outcome"),
+            "won": bool(row.get("won")),
+            "closeDate": g("close_date"),
+        },
+        "financials": {
+            "tcv": g("tcv"),
+            "fy27Revenue": g("fy27_revenue"),
+        },
+        "quarterly": [
+            {"quarter": "Q1", "revenue": g("q1_rev") or 0},
+            {"quarter": "Q2", "revenue": g("q2_rev") or 0},
+            {"quarter": "Q3", "revenue": g("q3_rev") or 0},
+            {"quarter": "Q4", "revenue": g("q4_rev") or 0},
+        ],
+        "monthlyRevenue": months,
+        "classification": {
+            "portfolio": g("portfolio"),
+            "serviceLine": g("service_line"),
+            "partner": g("partner"),
+            "solutionAccelerator": g("solution_accelerator"),
+            "source": g("source"),
+        },
+    }
+    detail.update(_build_extra_groups(row))
+    return detail
 
 
 def build_seller_detail(row: pd.Series, open_deals: pd.DataFrame) -> dict:

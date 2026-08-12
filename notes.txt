@@ -1,4 +1,6 @@
 
+"refresh the HubSpot data"
 
 C:\Kits\ClaudeProjects\05-Sales-Ops\app\backend>python -m uvicorn main:app --host localhost --port 8000
 
+C:\Users\jairam.panickssery\.local\bin\claude.exe --dangerously-skip-permissions

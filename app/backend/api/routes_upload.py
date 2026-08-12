@@ -3,7 +3,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile
 
-from ingest.pipeline import process_workbook
+from ingest import hubspot_source
+from ingest.pipeline import process_hubspot, process_workbook
 
 router = APIRouter()
 
@@ -24,7 +25,14 @@ async def upload_workbook(file: UploadFile):
     tmp_path.write_bytes(contents)
 
     try:
-        summary = process_workbook(str(tmp_path))
+        # If a HubSpot pull exists, HubSpot stays authoritative for open/
+        # closed deals -- this upload only refreshes Sellers, Line Items,
+        # Sales Hygiene, and the Del Org/OBU backfill (see process_hubspot).
+        # Only fall back to workbook-only mode if no pull has ever been made.
+        if hubspot_source.latest_snapshot_id() is not None:
+            summary = process_hubspot(str(tmp_path))
+        else:
+            summary = process_workbook(str(tmp_path))
     except Exception as exc:  # noqa: BLE001 - surface parse errors to the uploader
         raise HTTPException(status_code=422, detail=f"Could not process workbook: {exc}") from exc
     finally:

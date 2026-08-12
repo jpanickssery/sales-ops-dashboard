@@ -18,7 +18,7 @@ SNAPSHOTS_DIR = DATA_DIR / "snapshots"
 CURRENT_POINTER = DATA_DIR / "current.json"
 TREND_HISTORY = DATA_DIR / "trend_history.json"
 
-TABLE_NAMES = ["open_deals", "closed_deals", "line_items", "sellers", "hygiene"]
+TABLE_NAMES = ["open_deals", "closed_deals", "line_items", "sellers", "hygiene", "customers"]
 
 
 def ensure_dirs() -> None:
