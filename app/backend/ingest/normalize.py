@@ -418,19 +418,22 @@ def normalize_companies_hubspot(records: list[dict]) -> pd.DataFrame:
     rows = []
     for r in records:
         num_deals = _hubspot_num(r.get("num_associated_deals")) or 0.0
-        num_open = _hubspot_num(r.get("num_open_deals")) or 0.0
-        num_won = _hubspot_num(r.get("num_won_deals")) or 0.0
+        # HubSpot's actual property names, not the guessed snake_case below --
+        # confirmed against a raw pull on 2026-08-12 (see hubspot-data/README.md).
+        num_open = _hubspot_num(r.get("hs_num_open_deals")) or 0.0
+        num_won = _hubspot_num(r.get("number_of_won_deals")) or 0.0
         num_lost = max(num_deals - num_open - num_won, 0.0)
-        is_previous = bool(r.get("previous_client_date_added")) or r.get("account_sales_tier") == "Previous Client"
+        account_sales_tier = r.get("account_sales_tier__c")
+        is_previous = bool(r.get("previous_client_date_added__c")) or account_sales_tier == "Previous Client"
         rows.append({
             "hs_object_id": r.get("hs_object_id"),
             "company": r.get("name"),
             "owner": r.get("owner_name"),
             "country": r.get("country"),
             "industry": r.get("industry"),
-            "icp_tier": r.get("icp_tier"),
-            "account_sales_tier": r.get("account_sales_tier"),
-            "business_unit": r.get("business_unit"),
+            "icp_tier": r.get("hs_ideal_customer_profile"),
+            "account_sales_tier": account_sales_tier,
+            "business_unit": r.get("originating_business_unit__c"),
             "is_current": r.get("lifecyclestage") == "customer",
             "is_previous": is_previous,
             "num_contacts": _hubspot_num(r.get("num_associated_contacts")),
@@ -441,7 +444,7 @@ def normalize_companies_hubspot(records: list[dict]) -> pd.DataFrame:
             "total_revenue": _hubspot_num(r.get("total_revenue")) or 0.0,
             "revenue_fy27": _hubspot_num(r.get("revenue_fy2027")) or 0.0,
             "revenue_fy28": _hubspot_num(r.get("revenue_fy2028")) or 0.0,
-            "annual_revenue": _hubspot_num(r.get("annual_revenue")),
+            "annual_revenue": _hubspot_num(r.get("annualrevenue")),
             "service_lines": r.get("service_lines") or [],
         })
     df = pd.DataFrame(rows)

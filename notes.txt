@@ -4,3 +4,69 @@
 C:\Kits\ClaudeProjects\05-Sales-Ops\app\backend>python -m uvicorn main:app --host localhost --port 8000
 
 C:\Users\jairam.panickssery\.local\bin\claude.exe --dangerously-skip-permissions
+
+
+
+Two different things live under "Claude.ai in the browser," and only one of them can actually write files into a cloned repo:
+
+Plain claude.ai chat (with the HubSpot connector enabled) — can call the same HubSpot tools, but has no filesystem/git access. It can't write app/hubspot-data/<timestamp>/open_deals.json etc. into anyone's clone; it could only paste JSON into the chat window for someone to save by hand, which isn't practical for a multi-file, paginated pull like this. Not the right surface for this task.
+
+claude.ai/code (the Claude Code web app) — this is what actually does it, same as this CLI session. It has real repo access, plus MCP connectors like HubSpot. This is the one to use.
+
+Steps for someone with a HubSpot account on the same portal (teamhgs.com / account 40058686):
+
+1. Go to claude.ai/code, start a session connected to the jpanickssery/sales-ops-dashboard GitHub repo (connect it, or clone it in — same idea as opening a working directory for Claude Code locally).
+2. Connect their own HubSpot login via Settings → Connectors → HubSpot (first HubSpot tool call will also prompt for this if not already connected). This authenticates with their HubSpot permissions, not yours — they just need read access to portal 40058686.
+3. In chat: "refresh the HubSpot data."
+4. Claude reads app/hubspot-data/README.md in that repo and follows the exact pull procedure — same filters/property list/GUIDs as I used — writing into a new app/hubspot-data/<timestamp>/ folder and updating latest.json.
+5. If they want the team to see the refreshed data (not just their own local run), they still need to commit + push — refreshing doesn't auto-publish it.
+
+"How does it know which folder/app to update" — there's no separate folder-picking step. The repo it's connected to for that session is the entire scope of what Claude Code can see and write. As long as they opened/connected this specific repo (rather than some other project), app/hubspot-data/ unambiguously means this repo's copy — that's exactly why plain claude.ai chat (no repo connection at all) can't do it, and why the answer is "connect the repo first, then ask."
+
+One caveat worth flagging to whoever you hand this to: the pull procedure in hubspot-data/README.md has portal-specific stage/pipeline GUIDs baked in (fed83841-... = Stage 5 - Won, etc., for account 40058686). It only works for someone on that same HubSpot portal — "any HubSpot account" isn't quite right; it has to be teamhgs.com's portal specifically.
+
+
+
+
+- Contains only the FastAPI backend + frontend code, app/README.md (setup/run instructions), and app/hubspot-data/README.md (the HubSpot refresh procedure — needed so a clone recipient's Claude session knows what to do when asked to refresh).
+- Contains none of: the HubSpot data pulls, latest.json, computed snapshots, 01-Docs/ (build plan, customer analysis workbook, design zip), your dev notes, or the stray empty python file.
+- Fresh git history — not derived from sales-ops-dashboard's history, so none of the business data that was committed there is reachable through this repo at all.
+- .gitignore in the new repo blocks app/hubspot-data/*/, latest.json, and app/backend/data/ going forward, so if someone clones it and refreshes their own HubSpot data, it stays local and won't get committed back by accident.
+
+Anyone you invite as a collaborator can clone it, run pip install -r app/backend/requirements.txt, start the server, and ask their own Claude session (with their own HubSpot connector) to "refresh the HubSpot data" to populate their own local snapshot — same flow we discussed, just now packaged as its own repo.
+
+One thing worth flagging: I created this repo using your cached GitHub credential (the same one Git already had stored for pushing to sales-ops-dashboard) — I didn't ask for a token, it was already available since it was needed to fully carry out the request. Since it's private, only you can see it until you add collaborators via GitHub's Settings → Collaborators.
+
+
+
+
+
+Here are the exact steps, written for Windows cmd.exe (Command Prompt), for someone cloning jpanickssery/sales-ops-share:
+
+0. Prerequisites — Git and Python 3.10+ installed and on PATH. Since the repo is private, you need to add them as a collaborator first (GitHub → repo → Settings → Collaborators), and they'll need a GitHub login or personal access token to authenticate the clone.
+
+1. Clone the repo
+git clone https://github.com/jpanickssery/sales-ops-share.git
+cd sales-ops-share
+(A browser/credential prompt will appear for GitHub auth since it's private.)
+
+2. Set up a virtual environment and install dependencies
+cd app\backend
+python -m venv venv
+venv\Scripts\activate.bat
+python -m pip install -r requirements.txt
+(Skipping the venv and just running python -m pip install -r requirements.txt globally also works, just less clean.)
+
+3. (Optional) Set the Claude API key — only needed for the "Ask a Question" chat feature; every other view works without it:
+set ANTHROPIC_API_KEY=sk-ant-...
+Note: set in cmd.exe only lasts for that terminal session — they'd need to re-run it (or use setx for a permanent one) each time they open a new Command Prompt.
+
+4. Run the server
+python -m uvicorn main:app --host 127.0.0.1 --port 8000
+
+5. Open the app — http://127.0.0.1:8000/ in a browser. It'll start with no data (no HubSpot pull, no workbook) until step 6.
+
+6. Get HubSpot data in — leave that Command Prompt window running the server, and in a Claude Code session (CLI, desktop, or claude.ai/code) opened on this same sales-ops-share folder, with their own HubSpot connector connected: ask "refresh the HubSpot data." Then stop the server (Ctrl+C in that window) and re-run step 4 — the README says it loads the snapshot on startup, so it needs a restart to pick up a pull made while it was already running.
+
+That's the full loop. If they also want Sellers/quota/Line Items/Sales Hygiene data, that only comes from the workbook upload (Data → Upload Spreadsheet in the UI) — that source wasn't included in this share repo, so those views stay blank unless they upload their own.
+

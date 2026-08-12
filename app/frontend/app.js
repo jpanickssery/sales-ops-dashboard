@@ -58,12 +58,13 @@ const state = {
   closedSortDir: "desc",
   closedOutcome: "All", // "All" | "Won" | "Lost" -- narrows the table only, not the KPI cards
   closedDealDetail: null,
-  // Master Customer page: 8 filter dimensions (status is Current/Previous/
-  // Current & Previous, the rest mirror the columns on the table) plus a
-  // free-text company search.
+  // Master Customer page: 7 filter dimensions (status is Current/Previous/
+  // Current & Previous; closedWon/openOpps are derived Yes/No from
+  // numWonDeals/numOpenDeals > 0; the rest mirror columns on the table)
+  // plus a free-text company search.
   customerFilters: {
-    status: [], country: [], industry: [], businessUnit: [],
-    icpTier: [], accountSalesTier: [], owner: [], serviceLine: [],
+    status: [], country: [], owner: [], serviceLine: [], closedWon: [], openOpps: [],
+    accountSalesTier: [],
   },
   customerSearch: "",
   customerSortCol: "totalRevenue",
@@ -1123,11 +1124,10 @@ function customerMatchesServiceLine(selected, serviceLines) {
 function customerMatchesAllFilters(filters, r) {
   return matchesFilter(filters.status, r.status)
     && matchesFilter(filters.country, r.country)
-    && matchesFilter(filters.industry, r.industry)
-    && matchesFilter(filters.businessUnit, r.businessUnit)
-    && matchesFilter(filters.icpTier, r.icpTier)
-    && matchesFilter(filters.accountSalesTier, r.accountSalesTier)
     && matchesFilter(filters.owner, r.owner)
+    && matchesFilter(filters.closedWon, r.hasWonDeals)
+    && matchesFilter(filters.openOpps, r.hasOpenDeals)
+    && matchesFilter(filters.accountSalesTier, r.accountSalesTier)
     && customerMatchesServiceLine(filters.serviceLine, r.serviceLines);
 }
 
@@ -1139,12 +1139,11 @@ function customerFilterRow(filters, rows) {
   return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
     ${filterFlyout("customer", "status", "Status", filters.status, opts("status"))}
     ${filterFlyout("customer", "country", "Country", filters.country, opts("country"))}
-    ${filterFlyout("customer", "industry", "Industry", filters.industry, opts("industry"))}
-    ${filterFlyout("customer", "businessUnit", "Business Unit", filters.businessUnit, opts("businessUnit"))}
-    ${filterFlyout("customer", "icpTier", "ICP Tier", filters.icpTier, opts("icpTier"))}
-    ${filterFlyout("customer", "accountSalesTier", "Account Tier", filters.accountSalesTier, opts("accountSalesTier"))}
     ${filterFlyout("customer", "owner", "Owner", filters.owner, opts("owner"))}
     ${filterFlyout("customer", "serviceLine", "Service Line", filters.serviceLine, serviceLineOpts)}
+    ${filterFlyout("customer", "closedWon", "Closed Won", filters.closedWon, opts("hasWonDeals"))}
+    ${filterFlyout("customer", "openOpps", "Open Opps", filters.openOpps, opts("hasOpenDeals"))}
+    ${filterFlyout("customer", "accountSalesTier", "Type", filters.accountSalesTier, opts("accountSalesTier"))}
   </div>`;
 }
 
@@ -1152,48 +1151,40 @@ function customerTableHeader(sc, sd) {
   return `<tr>
     ${sortableHeader("customer", "company", "Company", sc, sd)}
     ${sortableHeader("customer", "owner", "Owner", sc, sd)}
-    ${sortableHeader("customer", "status", "Status", sc, sd)}
     ${sortableHeader("customer", "country", "Country", sc, sd)}
-    ${sortableHeader("customer", "industry", "Industry", sc, sd)}
-    ${sortableHeader("customer", "businessUnit", "Business Unit", sc, sd)}
-    ${sortableHeader("customer", "icpTier", "ICP Tier", sc, sd)}
-    ${sortableHeader("customer", "accountSalesTier", "Acct Tier", sc, sd)}
     ${sortableHeader("customer", "totalRevenue", "Total Rev", sc, sd, true)}
     ${sortableHeader("customer", "revenueFY27", "FY27 Rev", sc, sd, true)}
     ${sortableHeader("customer", "revenueFY28", "FY28 Rev", sc, sd, true)}
-    ${sortableHeader("customer", "numOpenDeals", "Open", sc, sd, true)}
-    ${sortableHeader("customer", "numWonDeals", "Won", sc, sd, true)}
-    ${sortableHeader("customer", "numLostDeals", "Lost", sc, sd, true)}
-    ${sortableHeader("customer", "numContacts", "Contacts", sc, sd, true)}
-    <th>Service Lines</th>
+    ${sortableHeader("customer", "numOpenDeals", "Open Opps", sc, sd, true)}
+    ${sortableHeader("customer", "numWonDeals", "Closed Won", sc, sd, true)}
+    ${sortableHeader("customer", "accountSalesTier", "Type", sc, sd)}
   </tr>`;
 }
 
 function customerTableRow(r) {
-  const sl = r.serviceLines && r.serviceLines.length ? r.serviceLines.join(", ") : "—";
   return `<tr class="row-link" data-customer-id="${r.id}">
     <td style="font-weight:500">${esc(r.company)}</td>
     <td style="color:#5C6D72">${esc(r.owner)}</td>
-    <td>${customerStatusBadge(r.status)}</td>
     <td style="color:#5C6D72">${esc(r.country)}</td>
-    <td style="color:#5C6D72">${esc(r.industry)}</td>
-    <td style="color:#5C6D72">${esc(r.businessUnit)}</td>
-    <td style="color:#5C6D72">${esc(r.icpTier)}</td>
-    <td style="color:#5C6D72">${esc(r.accountSalesTier)}</td>
     <td class="num" style="font-weight:500">${fmtNumAbbrev(r.totalRevenue)}</td>
     <td class="num">${fmtNumAbbrev(r.revenueFY27)}</td>
     <td class="num">${fmtNumAbbrev(r.revenueFY28)}</td>
     <td class="num">${fmtNum(r.numOpenDeals)}</td>
     <td class="num">${fmtNum(r.numWonDeals)}</td>
-    <td class="num">${fmtNum(r.numLostDeals)}</td>
-    <td class="num">${r.numContacts === null || r.numContacts === undefined ? "—" : fmtNum(r.numContacts)}</td>
-    <td style="font-size:11.5px;color:#8393A0;max-width:220px">${esc(sl)}</td>
+    <td style="color:#5C6D72">${esc(r.accountSalesTier)}</td>
   </tr>`;
 }
 
 function renderCustomers() {
   const d = state.data;
-  const rows = d.customers;
+  // hasWonDeals/hasOpenDeals are derived here (not backend fields) for the
+  // Closed Won / Open Opps Yes/No filters -- plain counts have no small set
+  // of clean categories, so they're bucketed to presence/absence instead.
+  const rows = d.customers.map((r) => ({
+    ...r,
+    hasWonDeals: r.numWonDeals > 0 ? "Yes" : "No",
+    hasOpenDeals: r.numOpenDeals > 0 ? "Yes" : "No",
+  }));
   const search = state.customerSearch.toLowerCase();
   const f = state.customerFilters;
   let filtered = rows.filter((r) =>
