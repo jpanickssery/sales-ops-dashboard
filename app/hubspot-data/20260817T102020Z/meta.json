@@ -1,0 +1,53 @@
+{
+  "pulledAt": "2026-08-17T10:20:20Z",
+  "pulledBy": "jairam.panickssery@teamhgs.com",
+  "portalId": "40058686",
+  "filters": {
+    "openDeals": {
+      "dealstage": "NOT_IN [Stage 5 - Won, Closed Lost] (HGS Global Pipeline)"
+    },
+    "closedDeals": {
+      "dealstage": "IN [Stage 5 - Won, Closed Lost] (HGS Global Pipeline)",
+      "closedate": "GTE 2026-04-01T00:00:00Z AND LT 2027-04-01T00:00:00Z (FY27, epoch ms: 1775001600000 to 1806537600000)"
+    },
+    "companies": {
+      "filterGroups": "OR of [lifecyclestage = customer] and [previous_client_date_added__c HAS_PROPERTY]"
+    }
+  },
+  "counts": {
+    "openDeals": 694,
+    "closedDealsTotal": 614,
+    "closedWon": 227,
+    "closedLost": 387,
+    "totalDeals": 1308,
+    "companies": 749,
+    "companiesWithServiceLineData": 194
+  },
+  "dealProperties": [
+    "dealname", "company_name", "hubspot_owner_id", "region", "obu", "dealtype", "dealstage",
+    "pipeline", "hs_manual_forecast_category", "hs_deal_stage_probability", "closedate",
+    "hs_tcv", "hgs_oss_amount__c", "hs_acv", "service_line", "partner_account__c",
+    "accelerators", "target_deal", "portfolio", "deal_source", "closed_lost_reason",
+    "createdate", "hs_lastmodifieddate",
+    "rev_apr_fy27", "rev_may_fy27", "rev_jun_fy27", "rev_jul_fy27", "rev_aug_fy27",
+    "rev_sep_fy27", "rev_oct_fy27", "rev_nov_fy27", "rev_dec_fy27", "rev_jan_fy27",
+    "rev_feb_fy27", "rev_mar_fy27",
+    "hs_next_step", "notes_last_contacted", "notes_last_updated", "notes_next_activity_date",
+    "num_notes", "num_contacted_notes", "hs_is_stalled", "hs_deal_score",
+    "primary_competitor__c", "who_did_we_lose_to_competitor__c", "win_remarks__c", "win_probability__c",
+    "approval_tier", "contract_duration_months__c", "start_date__c", "end_date__c",
+    "first_invoice_date__c", "go_live_date__c",
+    "lead_source", "industry_vertical__c", "solution_veritical", "functional_area__c", "technology__c"
+  ],
+  "companyProperties": [
+    "name", "country", "industry", "hs_ideal_customer_profile", "account_sales_tier__c",
+    "hubspot_owner_id", "num_associated_contacts", "hs_num_open_deals", "num_associated_deals",
+    "number_of_won_deals", "total_revenue", "revenue_fy2027", "revenue_fy2028", "annualrevenue",
+    "originating_business_unit__c", "lifecyclestage", "previous_client_date_added__c"
+  ],
+  "notes": {
+    "companyServiceLines": "service_line only exists on DEAL, not COMPANY. Company-level service_lines here are derived by grouping this pull's open_deals.json + closed_deals.json by company_name and collecting distinct service_line values -- this only covers deals in this pull's horizon (open + FY27 closed), so most companies' full service-line history (pre-FY27) is not reflected. 194 of 749 companies (25.9%) have at least one service line from this horizon; treat companies.json's service_lines as a lower bound, not a complete picture.",
+    "currentVsPrevious": "HubSpot has no single 'Current/Previous client' status field. This pull's company filter (lifecyclestage = customer OR previous_client_date_added__c populated) is a proxy matching the prior pull's methodology; account_sales_tier__c is a richer but separately-maintained classification that can disagree with this status on the same company.",
+    "driftVsPriorPull": "Counts drift naturally pull-to-pull as deals/companies move through the CRM (prior 2026-08-04 pull: 696 open, 546 closed FY27 (202 won/344 lost), 744 companies (187 with service-line data)). This pull's small increases (694 open, 614 closed, 749 companies) are expected, not a sign of a broken pull."
+  }
+}

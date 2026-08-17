@@ -1,0 +1,1 @@
+C:\Users\jairam.panickssery\.local\bin\claude.exe --dangerously-skip-permissions

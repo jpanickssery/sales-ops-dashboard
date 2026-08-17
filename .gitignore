@@ -3,6 +3,9 @@ app/backend/data/
 01-Docs/HGS_FY27_Pipeline_Dashboard_Current-v1.xlsx
 01-Docs/~$HGS_FY27_Pipeline_Dashboard_Current-v1.xlsx
 
+# newapp/ is its own standalone git repo (separate history, see 01-Docs/sales-ops-new-plan.md)
+newapp/
+
 # Python
 __pycache__/
 *.pyc
